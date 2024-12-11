@@ -7,7 +7,7 @@ import {
   BrowserWindow
 } from 'electron'
 import windowManager from 'apis/app/window/windowManager'
-import { IWindowList } from '#/types/enum'
+import { IRPCActionType, IWindowList } from '#/types/enum'
 import uploader from 'apis/app/uploader'
 import pasteTemplate from '~/main/utils/pasteTemplate'
 import db, { GalleryDB } from '~/main/apis/core/datastore'
@@ -25,10 +25,9 @@ import {
   SHOW_UPLOAD_PAGE_MENU,
   OPEN_USER_STORE_FILE,
   OPEN_URL,
-  RELOAD_APP,
   SHOW_PLUGIN_PAGE_MENU,
   SET_MINI_WINDOW_POS,
-  CHANGE_LANGUAGE
+  GET_PICBEDS
 } from '#/events/constants'
 import {
   uploadClipboardFiles,
@@ -36,9 +35,9 @@ import {
 } from '~/main/apis/app/uploader/apis'
 import picgoCoreIPC from './picgoCoreIPC'
 import { handleCopyUrl } from '~/main/utils/common'
-import { buildMainPageMenu, buildMiniPageMenu, buildPluginPageMenu, buildUploadPageMenu } from './remotes/menu'
+import { buildMainPageMenu, buildMiniPageMenu, buildPluginPageMenu, buildPicBedListMenu } from './remotes/menu'
 import path from 'path'
-import { i18n, T } from '~/universal/i18n'
+import { T } from '~/main/i18n'
 
 const STORE_PATH = app.getPath('userData')
 
@@ -48,27 +47,29 @@ export default {
     // from macOS tray
     ipcMain.on('uploadClipboardFiles', async () => {
       const trayWindow = windowManager.get(IWindowList.TRAY_WINDOW)!
-      const img = await uploader.setWebContents(trayWindow.webContents).upload()
+      // macOS use builtin clipboard is OK
+      const img = await uploader.setWebContents(trayWindow.webContents).uploadWithBuildInClipboard()
       if (img !== false) {
         const pasteStyle = db.get('settings.pasteStyle') || 'markdown'
         handleCopyUrl(pasteTemplate(pasteStyle, img[0], db.get('settings.customLink')))
         const notification = new Notification({
           title: T('UPLOAD_SUCCEED'),
-          body: img[0].imgUrl!,
+          body: img[0].imgUrl!
           // icon: file[0]
-          icon: img[0].imgUrl
+          // icon: img[0].imgUrl
         })
         notification.show()
         await GalleryDB.getInstance().insert(img[0])
         trayWindow.webContents.send('clipboardFiles', [])
         if (windowManager.has(IWindowList.SETTING_WINDOW)) {
-          windowManager.get(IWindowList.SETTING_WINDOW)!.webContents.send('updateGallery')
+          windowManager.get(IWindowList.SETTING_WINDOW)!.webContents.send(IRPCActionType.UPDATE_GALLERY)
         }
       }
       trayWindow.webContents.send('uploadFiles')
     })
 
     ipcMain.on('uploadClipboardFilesFromUploadPage', () => {
+      console.log('handle')
       uploadClipboardFiles()
     })
 
@@ -136,7 +137,7 @@ export default {
       const miniWindow = windowManager.get(IWindowList.MINI_WINDOW)!
       const settingWindow = windowManager.get(IWindowList.SETTING_WINDOW)!
 
-      if (db.get('settings.miniWindowOntop')) {
+      if (db.get('settings.miniWindowOnTop')) {
         miniWindow.setAlwaysOnTop(true)
       }
 
@@ -152,9 +153,9 @@ export default {
       }
     })
 
-    ipcMain.on('getPicBeds', (evt: IpcMainEvent) => {
+    ipcMain.on(GET_PICBEDS, (evt: IpcMainEvent) => {
       const picBeds = getPicBeds()
-      evt.sender.send('getPicBeds', picBeds)
+      evt.sender.send(GET_PICBEDS, picBeds)
       evt.returnValue = picBeds
     })
 
@@ -185,7 +186,7 @@ export default {
     })
     ipcMain.on(SHOW_UPLOAD_PAGE_MENU, () => {
       const window = windowManager.get(IWindowList.SETTING_WINDOW)!
-      const menu = buildUploadPageMenu()
+      const menu = buildPicBedListMenu()
       menu.popup({
         window
       })
@@ -216,17 +217,9 @@ export default {
     ipcMain.on(OPEN_URL, (evt: IpcMainEvent, url: string) => {
       shell.openExternal(url)
     })
-    ipcMain.on(RELOAD_APP, () => {
-      app.relaunch()
-      app.exit(0)
-    })
     ipcMain.on(SET_MINI_WINDOW_POS, (evt: IpcMainEvent, pos: IMiniWindowPos) => {
       const window = BrowserWindow.getFocusedWindow()
       window?.setBounds(pos)
-    })
-    ipcMain.on(CHANGE_LANGUAGE, (evt: IpcMainEvent, lang: string) => {
-      lang = lang || 'zh-CN'
-      i18n.setLanguage(lang)
     })
   },
   dispose () {}

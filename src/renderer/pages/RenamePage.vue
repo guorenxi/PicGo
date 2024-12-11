@@ -1,69 +1,112 @@
 <template>
-  <div id="rename-page">
+  <div class="p-[20px] flex flex-col justify-between">
     <el-form
-      @submit.native.prevent
+      ref="formRef"
+      :model="form"
+      @submit.prevent
     >
       <el-form-item
         :label="$T('FILE_RENAME')"
+        prop="fileName"
+        :rules="[
+          { required: true, message: 'file name is required', trigger: 'blur' }
+        ]"
       >
         <el-input
-          v-model="fileName"
+          v-model="form.fileName"
           size="small"
-          @keyup.enter.native="confirmName"
-        ></el-input>
+          autofocus
+          @keyup.enter="confirmName"
+        >
+          <template #suffix>
+            <el-icon
+              class="el-input__icon"
+              style="cursor: pointer;"
+              @click="form.fileName = ''"
+            >
+              <close />
+            </el-icon>
+          </template>
+        </el-input>
       </el-form-item>
     </el-form>
     <el-row>
-      <div class="pull-right">
-        <el-button @click="cancel" round size="mini">{{ $T('CANCEL') }}</el-button>
-        <el-button type="primary" @click="confirmName" round size="mini">{{ $T('CONFIRM') }}</el-button>
+      <div class="w-full flex justify-end mt-[20px]">
+        <el-button
+          round
+          size="small"
+          @click="cancel"
+        >
+          {{ $T('CANCEL') }}
+        </el-button>
+        <el-button
+          type="primary"
+          round
+          size="small"
+          @click="confirmName"
+        >
+          {{ $T('CONFIRM') }}
+        </el-button>
       </div>
     </el-row>
   </div>
 </template>
-<script lang="ts">
-import { RENAME_FILE_NAME } from '#/events/constants'
-import { Component, Vue } from 'vue-property-decorator'
-import mixin from '@/utils/mixin'
+<script lang="ts" setup>
+import { Close } from '@element-plus/icons-vue'
+import { GET_RENAME_FILE_NAME, RENAME_FILE_NAME } from '#/events/constants'
+import { sendToMain } from '@/utils/dataSender'
+import { T as $T } from '@/i18n/index'
 import {
   ipcRenderer,
   IpcRendererEvent
 } from 'electron'
-@Component({
-  name: 'rename-page',
-  mixins: [mixin]
+import { onBeforeUnmount, onBeforeMount, ref, reactive } from 'vue'
+import { useIPCOn } from '@/hooks/useIPC'
+import { FormInstance } from 'element-plus'
+const id = ref<string | null>(null)
+const formRef = ref<FormInstance>()
+
+const form = reactive({
+  fileName: '',
+  originName: ''
 })
-export default class extends Vue {
-  fileName: string = ''
-  originName: string = ''
-  id: string | null = null
-  created () {
-    ipcRenderer.on(RENAME_FILE_NAME, (event: IpcRendererEvent, newName: string, originName: string, id: string) => {
-      this.fileName = newName
-      this.originName = originName
-      this.id = id
-    })
-  }
 
-  confirmName () {
-    ipcRenderer.send(`${RENAME_FILE_NAME}${this.id}`, this.fileName)
-  }
+const handleFileName = (event: IpcRendererEvent, newName: string, _originName: string, _id: string) => {
+  form.fileName = newName
+  form.originName = _originName
+  id.value = _id
+}
 
-  cancel () {
-    // if cancel, use origin file name
-    ipcRenderer.send(`${RENAME_FILE_NAME}${this.id}`, this.originName)
-  }
+useIPCOn(RENAME_FILE_NAME, handleFileName)
 
-  beforeDestroy () {
-    ipcRenderer.removeAllListeners('rename')
-  }
+onBeforeMount(() => {
+  ipcRenderer.send(GET_RENAME_FILE_NAME)
+})
+
+function confirmName () {
+  formRef.value?.validate((valid) => {
+    if (valid) {
+      sendToMain(`${RENAME_FILE_NAME}${id.value}`, form.fileName)
+    }
+  })
+}
+
+function cancel () {
+  // if cancel, use origin file name
+  sendToMain(`${RENAME_FILE_NAME}${id.value}`, form.originName)
+}
+
+onBeforeUnmount(() => {
+  ipcRenderer.removeAllListeners(RENAME_FILE_NAME)
+})
+
+</script>
+<script lang="ts">
+export default {
+  name: 'RenamePage'
 }
 </script>
 <style lang='stylus'>
-  #rename-page
-    padding 0 20px
-    .pull-right
-      float right
-    .el-form-item__label
-      color #ddd
+  .el-form-item__label
+    color #ddd
 </style>

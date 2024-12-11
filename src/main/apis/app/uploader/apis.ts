@@ -3,13 +3,13 @@ import {
   WebContents
 } from 'electron'
 import windowManager from 'apis/app/window/windowManager'
-import { IWindowList } from '#/types/enum'
+import { IRPCActionType, IWindowList } from '#/types/enum'
 import uploader from '.'
 import pasteTemplate from '~/main/utils/pasteTemplate'
 import db, { GalleryDB } from '~/main/apis/core/datastore'
-import { handleCopyUrl } from '~/main/utils/common'
-import { handleUrlEncode } from '#/utils/common'
-import { T } from '#/i18n/index'
+import { handleCopyUrl, handleUrlEncodeWithSetting } from '~/main/utils/common'
+import { T } from '~/main/i18n/index'
+import logger from '@core/picgo/logger'
 // import dayjs from 'dayjs'
 
 const handleClipboardUploading = async (): Promise<false | ImgInfo[]> => {
@@ -22,6 +22,7 @@ const handleClipboardUploading = async (): Promise<false | ImgInfo[]> => {
 }
 
 export const uploadClipboardFiles = async (): Promise<string> => {
+  logger.info('upload clipboard file')
   const img = await handleClipboardUploading()
   if (img !== false) {
     if (img.length > 0) {
@@ -30,8 +31,8 @@ export const uploadClipboardFiles = async (): Promise<string> => {
       handleCopyUrl(pasteTemplate(pasteStyle, img[0], db.get('settings.customLink')))
       const notification = new Notification({
         title: T('UPLOAD_SUCCEED'),
-        body: img[0].imgUrl!,
-        icon: img[0].imgUrl
+        body: img[0].imgUrl!
+        // icon: img[0].imgUrl
       })
       setTimeout(() => {
         notification.show()
@@ -41,9 +42,9 @@ export const uploadClipboardFiles = async (): Promise<string> => {
       trayWindow?.webContents?.send('clipboardFiles', [])
       trayWindow?.webContents?.send('uploadFiles', img)
       if (windowManager.has(IWindowList.SETTING_WINDOW)) {
-        windowManager.get(IWindowList.SETTING_WINDOW)!.webContents?.send('updateGallery')
+        windowManager.get(IWindowList.SETTING_WINDOW)!.webContents?.send(IRPCActionType.UPDATE_GALLERY)
       }
-      return handleUrlEncode(img[0].imgUrl as string)
+      return handleUrlEncodeWithSetting(img[0].imgUrl as string)
     } else {
       const notification = new Notification({
         title: T('UPLOAD_FAILED'),
@@ -68,20 +69,20 @@ export const uploadChoosedFiles = async (webContents: WebContents, files: IFileW
       pasteText.push(pasteTemplate(pasteStyle, imgs[i], db.get('settings.customLink')))
       const notification = new Notification({
         title: T('UPLOAD_SUCCEED'),
-        body: imgs[i].imgUrl!,
-        icon: files[i].path
+        body: imgs[i].imgUrl!
+        // icon: files[i].path
       })
       setTimeout(() => {
         notification.show()
       }, i * 100)
       await GalleryDB.getInstance().insert(imgs[i])
-      result.push(handleUrlEncode(imgs[i].imgUrl!))
+      result.push(handleUrlEncodeWithSetting(imgs[i].imgUrl!))
     }
     handleCopyUrl(pasteText.join('\n'))
     // trayWindow just be created in mac/windows, not in linux
     windowManager.get(IWindowList.TRAY_WINDOW)?.webContents?.send('uploadFiles', imgs)
     if (windowManager.has(IWindowList.SETTING_WINDOW)) {
-      windowManager.get(IWindowList.SETTING_WINDOW)!.webContents?.send('updateGallery')
+      windowManager.get(IWindowList.SETTING_WINDOW)!.webContents?.send(IRPCActionType.UPDATE_GALLERY)
     }
     return result
   } else {

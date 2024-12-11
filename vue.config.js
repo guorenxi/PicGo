@@ -32,6 +32,10 @@ const config = {
           .set('#', resolve('src/universal'))
           .set('apis', resolve('src/main/apis'))
           .set('@core', resolve('src/main/apis/core'))
+        config.resolve.mainFields
+          .clear()
+          .add('main') // fix some modules will use browser target
+          .add('module')
       },
       builderOptions: {
         productName: 'PicGo',
@@ -62,7 +66,7 @@ const config = {
         mac: {
           icon: 'build/icons/icon.icns',
           extendInfo: {
-            LSUIElement: 1
+            LSUIElement: 0
           },
           target: [{
             target: 'dmg',
@@ -77,7 +81,7 @@ const config = {
         win: {
           icon: 'build/icons/icon.ico',
           // eslint-disable-next-line no-template-curly-in-string
-          artifactName: 'PicGo Setup ${version}-${arch}.exe',
+          artifactName: 'PicGo-Setup-${version}-${arch}.exe',
           target: [{
             target: 'nsis',
             arch: [
@@ -89,7 +93,8 @@ const config = {
         nsis: {
           shortcutName: 'PicGo',
           oneClick: false,
-          allowToChangeInstallationDirectory: true
+          allowToChangeInstallationDirectory: true,
+          include: 'build/installer.nsh'
         },
         linux: {
           icon: 'build/icons/'

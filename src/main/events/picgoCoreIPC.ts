@@ -10,7 +10,7 @@ import {
 import { IPasteStyle, IPicGoHelperType, IWindowList } from '#/types/enum'
 import shortKeyHandler from 'apis/app/shortKey/shortKeyHandler'
 import picgo from '@core/picgo'
-import { handleStreamlinePluginName } from '~/universal/utils/common'
+import { handleStreamlinePluginName, simpleClone } from '~/universal/utils/common'
 import { IGuiMenuItem, PicGo as PicGoCore } from 'picgo'
 import windowManager from 'apis/app/window/windowManager'
 import { showNotification } from '~/main/utils/common'
@@ -25,13 +25,19 @@ import {
   PICGO_GET_BY_ID_DB,
   PICGO_REMOVE_BY_ID_DB,
   PICGO_OPEN_FILE,
-  PASTE_TEXT
+  PASTE_TEXT,
+  OPEN_WINDOW,
+  GET_LANGUAGE_LIST,
+  SET_CURRENT_LANGUAGE,
+  GET_CURRENT_LANGUAGE,
+  GET_PICBED_CONFIG
 } from '#/events/constants'
 
 import { GalleryDB } from 'apis/core/datastore'
 import { IObject, IFilter } from '@picgo/store/dist/types'
 import pasteTemplate from '../utils/pasteTemplate'
-import { T } from '~/universal/i18n'
+import { i18nManager, T } from '~/main/i18n'
+import { rpcServer } from './rpc'
 
 // eslint-disable-next-line
 const requireFunc = typeof __webpack_require__ === 'function' ? __non_webpack_require__ : require
@@ -128,10 +134,19 @@ const getPluginList = (): IPicGoPlugin[] => {
 
 const handleGetPluginList = () => {
   ipcMain.on('getPluginList', (event: IpcMainEvent) => {
-    const list = getPluginList()
-    // here can just send JS Object not function
-    // or will cause [Failed to serialize arguments] error
-    event.sender.send('pluginList', list)
+    try {
+      const list = simpleClone(getPluginList())
+      // here can just send JS Object not function
+      // or will cause [Failed to serialize arguments] error
+      event.sender.send('pluginList', list)
+    } catch (e: any) {
+      event.sender.send('pluginList', [])
+      showNotification({
+        title: T('TIPS_GET_PLUGIN_LIST_FAILED'),
+        body: e.message
+      })
+      picgo.log.error(e)
+    }
   })
 }
 
@@ -209,14 +224,14 @@ const handleNPMError = (): IDispose => {
 }
 
 const handleGetPicBedConfig = () => {
-  ipcMain.on('getPicBedConfig', (event: IpcMainEvent, type: string) => {
+  ipcMain.on(GET_PICBED_CONFIG, (event: IpcMainEvent, type: string) => {
     const name = picgo.helper.uploader.get(type)?.name || type
     if (picgo.helper.uploader.get(type)?.config) {
       const _config = picgo.helper.uploader.get(type)!.config!(picgo)
       const config = handleConfigWithFunction(_config)
-      event.sender.send('getPicBedConfig', config, name)
+      event.sender.send(GET_PICBED_CONFIG, config, name)
     } else {
-      event.sender.send('getPicBedConfig', [], name)
+      event.sender.send(GET_PICBED_CONFIG, [], name)
     }
   })
 }
@@ -267,8 +282,16 @@ const handleImportLocalPlugin = () => {
     if (filePaths.length > 0) {
       const res = await picgo.pluginHandler.install(filePaths)
       if (res.success) {
-        const list = getPluginList()
-        event.sender.send('pluginList', list)
+        try {
+          const list = simpleClone(getPluginList())
+          event.sender.send('pluginList', list)
+        } catch (e: any) {
+          event.sender.send('pluginList', [])
+          showNotification({
+            title: T('TIPS_GET_PLUGIN_LIST_FAILED'),
+            body: e.message
+          })
+        }
         showNotification({
           title: T('PLUGIN_IMPORT_SUCCEED'),
           body: ''
@@ -321,7 +344,7 @@ const handlePicGoGalleryDB = () => {
     event.sender.send(PICGO_REMOVE_BY_ID_DB, res, callbackId)
   })
 
-  ipcMain.handle(PASTE_TEXT, async (item: ImgInfo, copy = true) => {
+  ipcMain.handle(PASTE_TEXT, async (_, item: ImgInfo, copy = true) => {
     const pasteStyle = picgo.getConfig<IPasteStyle>('settings.pasteStyle') || IPasteStyle.MARKDOWN
     const customLink = picgo.getConfig<string>('settings.customLink')
     const txt = pasteTemplate(pasteStyle, item, customLink)
@@ -339,6 +362,45 @@ const handleOpenFile = () => {
   })
 }
 
+const handleOpenWindow = () => {
+  ipcMain.on(OPEN_WINDOW, (event: IpcMainEvent, windowName: IWindowList) => {
+    const window = windowManager.get(windowName)
+    if (window) {
+      window.show()
+    }
+  })
+}
+
+const handleI18n = () => {
+  ipcMain.on(GET_LANGUAGE_LIST, (event: IpcMainEvent) => {
+    event.sender.send(GET_LANGUAGE_LIST, i18nManager.languageList)
+  })
+  ipcMain.on(SET_CURRENT_LANGUAGE, (event: IpcMainEvent, language: string) => {
+    i18nManager.setCurrentLanguage(language)
+    const { lang, locales } = i18nManager.getCurrentLocales()
+    picgo.i18n.setLanguage(lang)
+    if (process.platform === 'darwin') {
+      const trayWindow = windowManager.get(IWindowList.TRAY_WINDOW)
+      trayWindow?.webContents.send(SET_CURRENT_LANGUAGE, lang, locales)
+    }
+    const settingWindow = windowManager.get(IWindowList.SETTING_WINDOW)
+    settingWindow?.webContents.send(SET_CURRENT_LANGUAGE, lang, locales)
+    if (windowManager.has(IWindowList.MINI_WINDOW)) {
+      const miniWindow = windowManager.get(IWindowList.MINI_WINDOW)
+      miniWindow?.webContents.send(SET_CURRENT_LANGUAGE, lang, locales)
+    }
+    // event.sender.send(SET_CURRENT_LANGUAGE, lang, locales)
+  })
+  ipcMain.on(GET_CURRENT_LANGUAGE, (event: IpcMainEvent) => {
+    const { lang, locales } = i18nManager.getCurrentLocales()
+    event.sender.send(GET_CURRENT_LANGUAGE, lang, locales)
+  })
+}
+
+const handleRPCActions = () => {
+  rpcServer.start()
+}
+
 export default {
   listen () {
     handleGetPluginList()
@@ -351,6 +413,9 @@ export default {
     handlePicGoGalleryDB()
     handleImportLocalPlugin()
     handleOpenFile()
+    handleOpenWindow()
+    handleI18n()
+    handleRPCActions()
   },
   // TODO: separate to single file
   handlePluginUninstall,

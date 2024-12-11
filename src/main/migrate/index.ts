@@ -3,7 +3,8 @@ import ConfigStore from '~/main/apis/core/datastore'
 import path from 'path'
 import fse from 'fs-extra'
 import { PicGo as PicGoCore } from 'picgo'
-import { T } from '~/universal/i18n'
+import { T } from '~/main/i18n'
+import { SHORTKEY_COMMAND_UPLOAD } from 'apis/core/bus/constants'
 // from v2.1.2
 const updateShortKeyFromVersion212 = (db: typeof ConfigStore, shortKeyConfig: IShortKeyConfigs | IOldShortKeyConfigs) => {
   // #557 极端情况可能会出现配置不存在，需要重新写入
@@ -19,7 +20,7 @@ const updateShortKeyFromVersion212 = (db: typeof ConfigStore, shortKeyConfig: IS
   }
   if (shortKeyConfig.upload) {
     // @ts-ignore
-    shortKeyConfig['picgo:upload'] = {
+    shortKeyConfig[SHORTKEY_COMMAND_UPLOAD] = {
       enable: true,
       key: shortKeyConfig.upload,
       name: 'upload',
@@ -34,7 +35,7 @@ const updateShortKeyFromVersion212 = (db: typeof ConfigStore, shortKeyConfig: IS
 }
 
 const migrateGalleryFromVersion230 = async (configDB: typeof ConfigStore, galleryDB: DBStore, picgo: PicGoCore) => {
-  const originGallery: ImgInfo[] = configDB.get('uploaded')
+  const originGallery: ImgInfo[] = picgo.getConfig('uploaded')
   // if hasMigrate, we don't need to migrate
   const hasMigrate: boolean = configDB.get('__migrateUploaded')
   if (hasMigrate) {

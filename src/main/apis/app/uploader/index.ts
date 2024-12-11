@@ -12,20 +12,15 @@ import windowManager from 'apis/app/window/windowManager'
 import { IWindowList } from '#/types/enum'
 import util from 'util'
 import { IPicGo } from 'picgo'
-import { showNotification, calcDurationRange } from '~/main/utils/common'
-import { RENAME_FILE_NAME, TALKING_DATA_EVENT } from '~/universal/events/constants'
+import { showNotification, calcDurationRange, getClipboardFilePath } from '~/main/utils/common'
+import { GET_RENAME_FILE_NAME, RENAME_FILE_NAME, TALKING_DATA_EVENT } from '~/universal/events/constants'
 import logger from '@core/picgo/logger'
-import { T } from '~/universal/i18n'
+import { T } from '~/main/i18n'
 import fse from 'fs-extra'
 import path from 'path'
-
-const waitForShow = (webcontent: WebContents) => {
-  return new Promise<void>((resolve) => {
-    webcontent.on('did-finish-load', () => {
-      resolve()
-    })
-  })
-}
+import { privacyManager } from '~/main/utils/privacyManager'
+import writeFile from 'write-file-atomic'
+import { CLIPBOARD_IMAGE_FOLDER } from '~/universal/utils/static'
 
 const waitForRename = (window: BrowserWindow, id: number): Promise<string|null> => {
   return new Promise((resolve) => {
@@ -90,14 +85,19 @@ class Uploader {
             let name: undefined | string | null
             let fileName: string | undefined
             if (autoRename) {
-              fileName = dayjs().add(index, 'ms').format('YYYYMMDDHHmmSSS') + item.extname
+              fileName = dayjs().add(index, 'ms').format('YYYYMMDDHHmmssSSS') + item.extname
             } else {
               fileName = item.fileName
             }
             if (rename) {
               const window = windowManager.create(IWindowList.RENAME_WINDOW)!
-              await waitForShow(window.webContents)
-              window.webContents.send(RENAME_FILE_NAME, fileName, item.fileName, window.webContents.id)
+              logger.info('wait for rename window ready...')
+              ipcMain.on(GET_RENAME_FILE_NAME, (evt) => {
+                if (evt.sender.id === window.webContents.id) {
+                  logger.info('rename window ready, wait for rename...')
+                  window.webContents.send(RENAME_FILE_NAME, fileName, item.fileName, window.webContents.id)
+                }
+              })
               name = await waitForRename(window, window.webContents.id)
             }
             item.fileName = name || fileName
@@ -118,16 +118,21 @@ class Uploader {
   async uploadWithBuildInClipboard (): Promise<ImgInfo[]|false> {
     let filePath = ''
     try {
-      const nativeImage = clipboard.readImage()
-      if (nativeImage.isEmpty()) {
-        return false
+      const imgPath = getClipboardFilePath()
+      if (!imgPath) {
+        const nativeImage = clipboard.readImage()
+        if (nativeImage.isEmpty()) {
+          return false
+        }
+        const buffer = nativeImage.toPNG()
+        const baseDir = picgo.baseDir
+        const fileName = `${dayjs().format('YYYYMMDDHHmmssSSS')}.png`
+        filePath = path.join(baseDir, CLIPBOARD_IMAGE_FOLDER, fileName)
+        await writeFile(filePath, buffer)
+        return await this.upload([filePath])
+      } else {
+        return await this.upload([imgPath])
       }
-      const buffer = nativeImage.toPNG()
-      const baseDir = picgo.baseDir
-      const fileName = `${dayjs().format('YYYYMMDDHHmmSSS')}.png`
-      filePath = path.join(baseDir, fileName)
-      await fse.writeFile(filePath, buffer)
-      return await this.upload([filePath])
     } catch (e: any) {
       logger.error(e)
       return false
@@ -140,6 +145,10 @@ class Uploader {
 
   async upload (img?: IUploadOption): Promise<ImgInfo[]|false> {
     try {
+      const privacyCheckRes = await privacyManager.check()
+      if (!privacyCheckRes) {
+        throw Error(T('PRIVACY_TIPS'))
+      }
       const startTime = Date.now()
       const output = await picgo.upload(img)
       if (Array.isArray(output) && output.some((item: ImgInfo) => item.imgUrl)) {
@@ -165,6 +174,8 @@ class Uploader {
         })
       }, 500)
       return false
+    } finally {
+      ipcMain.removeAllListeners(GET_RENAME_FILE_NAME)
     }
   }
 }
